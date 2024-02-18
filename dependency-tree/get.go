@@ -11,15 +11,14 @@ import (
 )
 
 type DependencyTree struct {
-	mu                                  sync.Mutex
-	wg                                  sync.WaitGroup
-	RepositoryChannel                   chan string
-	LastTimeDataSentToRepositoryChannel time.Time
-	GoModChanel                         chan *GoMod
-	LastTimeDataSentToGoModChannel      time.Time
-	ErrorChannel                        chan error
-	RepositoryToArtifactMap             map[string]*Artifact
-	timer                               time.Timer
+	mu                      sync.Mutex
+	wg                      sync.WaitGroup
+	RepositoryChannel       chan string
+	GoModChanel             chan *GoMod
+	ErrorChannel            chan error
+	RepositoryToArtifactMap map[string]*Artifact
+	ParseTimeOut            *time.Timer
+	FetchTimeOut            *time.Timer
 }
 
 type Artifact struct {
@@ -34,14 +33,14 @@ type DependencyTreeFetcher interface {
 
 func NewDependencyTree() DependencyTreeFetcher {
 	return &DependencyTree{
-		mu:                                  sync.Mutex{},
-		wg:                                  sync.WaitGroup{},
-		RepositoryChannel:                   make(chan string),
-		GoModChanel:                         make(chan *GoMod),
-		ErrorChannel:                        make(chan error),
-		RepositoryToArtifactMap:             make(map[string]*Artifact),
-		LastTimeDataSentToGoModChannel:      time.Now(),
-		LastTimeDataSentToRepositoryChannel: time.Now(),
+		mu:                      sync.Mutex{},
+		wg:                      sync.WaitGroup{},
+		RepositoryChannel:       make(chan string),
+		GoModChanel:             make(chan *GoMod),
+		ErrorChannel:            make(chan error),
+		RepositoryToArtifactMap: make(map[string]*Artifact),
+		ParseTimeOut:            time.NewTimer(5 * time.Second),
+		FetchTimeOut:            time.NewTimer(5 * time.Second),
 	}
 }
 
@@ -87,6 +86,8 @@ func (d *DependencyTree) getDependencyTree(url string) *Artifact {
 		Version:      "",
 		Dependencies: make([]*Artifact, 0),
 	}
+	d.ParseTimeOut.Reset(5 * time.Second)
+	d.FetchTimeOut.Reset(5 * time.Second)
 	d.mu.Unlock()
 
 	d.wg.Add(1)
