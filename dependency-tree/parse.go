@@ -41,27 +41,23 @@ func (d *DependencyTree) parseGoMod(goModContent, parentUrl string) error {
 				d.mu.Lock()
 				parent.Dependencies = append(parent.Dependencies, artifact)
 				d.mu.Unlock()
-				continue
-			}
+			} else {
+				// Create a new artifact for the dependency
+				artifact = &Artifact{
+					Name:         name,
+					Version:      version,
+					Dependencies: make([]*Artifact, 0),
+				}
 
-			// Create a new artifact for the dependency
-			artifact := &Artifact{
-				Name:         name,
-				Version:      version,
-				Dependencies: make([]*Artifact, 0),
-			}
+				// Update the repository map and dependencies
+				d.mu.Lock()
+				d.RepositoryToArtifactMap[name] = artifact
+				parent.Dependencies = append(parent.Dependencies, artifact)
+				d.mu.Unlock()
 
-			// Update the repository map and dependencies
-			d.mu.Lock()
-			d.RepositoryToArtifactMap[name] = artifact
-			parent.Dependencies = append(parent.Dependencies, artifact)
-			d.mu.Unlock()
-
-			if name != "" {
-				d.RepositoryChannel <- name
-				//d.mu.Lock()
-				//d.LastTimeDataSentToRepositoryChannel = time.Now()
-				//d.mu.Unlock()
+				if name != "" {
+					d.RepositoryChannel <- name
+				}
 			}
 		}
 	}
@@ -73,19 +69,11 @@ func (d *DependencyTree) parseGoMod(goModContent, parentUrl string) error {
 }
 
 func (d *DependencyTree) parse() {
-	defer func() {
-		log.Println("returning from parse")
-		d.wg.Done()
-		close(d.RepositoryChannel)
-	}()
+	defer d.wg.Done()
 
-	timeout := time.NewTimer(5 * time.Second) // Set initial timeout
 	for {
 		select {
 		case goMod, ok := <-d.GoModChanel:
-			//d.mu.Lock()
-			//timeDiff := time.Now().Sub(d.LastTimeDataSentToGoModChannel)
-			//d.mu.Unlock()
 			if !ok {
 				return // Channel closed, no more data will be sent
 			}
@@ -97,12 +85,14 @@ func (d *DependencyTree) parse() {
 					d.ErrorChannel <- err
 					return
 				}
-				if !timeout.Stop() {
-					<-timeout.C
+				d.mu.Lock()
+				if !d.ParseTimeOut.Stop() {
+					<-d.ParseTimeOut.C
 				}
-				timeout.Reset(5 * time.Second)
+				d.ParseTimeOut.Reset(5 * time.Second)
+				d.mu.Unlock()
 			}(goMod.GoModContent, goMod.ParentUrl)
-		case <-timeout.C:
+		case <-d.ParseTimeOut.C:
 			log.Println("Parse timeout reached")
 			return
 		}
