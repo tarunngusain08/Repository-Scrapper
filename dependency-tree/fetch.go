@@ -71,19 +71,11 @@ func (d *DependencyTree) fetchGoMod(repoURL string) ([]byte, error) {
 }
 
 func (d *DependencyTree) fetch() {
-	defer func() {
-		log.Println("returning from fetch")
-		d.wg.Done()
-		close(d.GoModChanel)
-	}()
+	defer d.wg.Done()
 
-	timeout := time.NewTimer(5 * time.Second) // Set initial timeout
 	for {
 		select {
 		case repository, ok := <-d.RepositoryChannel:
-			//d.mu.Lock()
-			//timeDiff := time.Now().Sub(d.LastTimeDataSentToRepositoryChannel)
-			//d.mu.Unlock()
 			if !ok {
 				return // Channel closed, no more data will be sent
 			}
@@ -101,17 +93,16 @@ func (d *DependencyTree) fetch() {
 						ParentUrl:    repo,
 					}
 					d.GoModChanel <- goMod
-					//d.mu.Lock()
-					//d.LastTimeDataSentToGoModChannel = time.Now()
-					//d.mu.Unlock()
 				}
-				if !timeout.Stop() {
-					<-timeout.C
+				d.mu.Lock()
+				if !d.FetchTimeOut.Stop() {
+					<-d.FetchTimeOut.C
 				}
-				timeout.Reset(5 * time.Second)
+				d.FetchTimeOut.Reset(5 * time.Second)
+				d.mu.Unlock()
 			}(repository)
-		case <-timeout.C:
-			log.Println("Fetch timeout reached")
+		case <-d.FetchTimeOut.C:
+			log.Println("Fetch timeOut reached")
 			return
 		}
 	}
